@@ -1,9 +1,13 @@
 #include "Arduino.h"
 #include "neopixel_leds.h"
 
+#ifdef __AVR__
+  #include <avr/power.h>
+#endif
+
 // constructor
 NeopixelLeds::NeopixelLeds() {
-	pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+	  pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
     pixels.begin();
 }
 
