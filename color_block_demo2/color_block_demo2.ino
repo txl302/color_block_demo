@@ -16,12 +16,12 @@
 #define VIBR_MOTOR 5
 
 NeopixelLeds neopixelleds;
-SoftwareSerial xbeeSerial(XBEE_RX, XBEE_TX);  // RX, TX
-XBee xbee = XBee();
-MPU6050 accelgyro;
+//SoftwareSerial xbeeSerial(XBEE_RX, XBEE_TX);  // RX, TX
+//XBee xbee = XBee();
+//MPU6050 accelgyro;
 
-int16_t ax, ay, az;
-int16_t gx, gy, gz;
+//int16_t ax, ay, az;
+//int16_t gx, gy, gz;
 
 // notes in the melody:
 int melody[] = {
@@ -35,19 +35,19 @@ const int PATTERN_PERIOD = 20000;
 
 void setup() {
     // 1.xbee
-    xbeeSerial.begin(9600);
-    xbee.setSerial(xbeeSerial);
+//    xbeeSerial.begin(9600);
+//    xbee.setSerial(xbeeSerial);
 
     // 2.mpu6050
-    Serial.begin(9600);  // print out test message
-    // join I2C bus (I2Cdev library doesn't do this automatically)
-    Wire.begin();
-    // initialize device
-    Serial.println("Initializing I2C devices...");
-    accelgyro.initialize();
-    // verify connection
-    Serial.println("Testing device connections...");
-    Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
+//    Serial.begin(9600);  // print out test message
+//    // join I2C bus (I2Cdev library doesn't do this automatically)
+//    Wire.begin();
+//    // initialize device
+//    Serial.println("Initializing I2C devices...");
+//    accelgyro.initialize();
+//    // verify connection
+//    Serial.println("Testing device connections...");
+//    Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
     
     // 3.speaker
     // iterate over the notes of the melody:
@@ -96,7 +96,7 @@ void loop() {
 //    delay(100);
 
     // xbee test, send message
-    xbeeSerial.println("Hello, there.");
+//    xbeeSerial.println("Hello, there.");
 
     // 5.neopixel leds, each pattern last for 20 sec
     // 5.1.rainbow spiral pattern
