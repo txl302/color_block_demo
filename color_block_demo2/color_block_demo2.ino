@@ -7,12 +7,7 @@
 #include "pitches.h"
 #include "I2Cdev.h"
 #include "MPU6050.h"
-
-// Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
-// is used in I2Cdev.h
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-    #include "Wire.h"
-#endif
+#include "Wire.h"
 
 // hardware connection define here
 #define XBEE_RX 7
@@ -46,11 +41,7 @@ void setup() {
     // 2.mpu6050
     Serial.begin(9600);  // print out test message
     // join I2C bus (I2Cdev library doesn't do this automatically)
-    #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-        Wire.begin();
-    #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
-        Fastwire::setup(400, true);
-    #endif
+    Wire.begin();
     // initialize device
     Serial.println("Initializing I2C devices...");
     accelgyro.initialize();
@@ -60,19 +51,19 @@ void setup() {
     
     // 3.speaker
     // iterate over the notes of the melody:
-    for (int thisNote = 0; thisNote < 8; thisNote++) {
-        // to calculate the note duration, take one second
-        // divided by the note type.
-        //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-        int noteDuration = 1000 / noteDurations[thisNote];
-        tone(SPEAKER, melody[thisNote], noteDuration);
-        // to distinguish the notes, set a minimum time between them.
-        // the note's duration + 30% seems to work well:
-        int pauseBetweenNotes = noteDuration * 1.30;
-        delay(pauseBetweenNotes);
-        // stop the tone playing:
-        noTone(SPEAKER);
-    }
+//    for (int thisNote = 0; thisNote < 8; thisNote++) {
+//        // to calculate the note duration, take one second
+//        // divided by the note type.
+//        //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
+//        int noteDuration = 1000 / noteDurations[thisNote];
+//        tone(SPEAKER, melody[thisNote], noteDuration);
+//        // to distinguish the notes, set a minimum time between them.
+//        // the note's duration + 30% seems to work well:
+//        int pauseBetweenNotes = noteDuration * 1.30;
+//        delay(pauseBetweenNotes);
+//        // stop the tone playing:
+//        noTone(SPEAKER);
+//    }
 
     // 4.vibration motor
     // fade in from min to max in increments of 5 points:
@@ -91,58 +82,58 @@ void setup() {
 
 void loop() {
     // 2.mpu6050 test
-    // read raw accel/gyro measurements from device
-    accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-    // display tab-separated accel/gyro x/y/z values
-    Serial.print("a/g:\t");
-    Serial.print(ax); Serial.print("\t");
-    Serial.print(ay); Serial.print("\t");
-    Serial.print(az); Serial.print("\t");
-    Serial.print(gx); Serial.print("\t");
-    Serial.print(gy); Serial.print("\t");
-    Serial.println(gz);
-    // delay before next reading:
-    delay(100);
+//    // read raw accel/gyro measurements from device
+//    accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+//    // display tab-separated accel/gyro x/y/z values
+//    Serial.print("a/g:\t");
+//    Serial.print(ax); Serial.print("\t");
+//    Serial.print(ay); Serial.print("\t");
+//    Serial.print(az); Serial.print("\t");
+//    Serial.print(gx); Serial.print("\t");
+//    Serial.print(gy); Serial.print("\t");
+//    Serial.println(gz);
+//    // delay before next reading:
+//    delay(100);
 
     // xbee test, send message
     xbeeSerial.println("Hello, there.");
 
     // 5.neopixel leds, each pattern last for 20 sec
-//    // 5.1.rainbow spiral pattern
-//    neopixelleds.rainbow_spiral_begin();
-//    timer_last = millis();
-//    while (millis() - timer_last < PATTERN_PERIOD) {
-//        neopixelleds.rainbow_spiral_update();
-//    }
-//    neopixelleds.clear_pixels();
-//    // 5.2.rainbow circular pattern
-//    neopixelleds.rainbow_circular_begin();
-//    timer_last = millis();
-//    while (millis() - timer_last < PATTERN_PERIOD) {
-//        neopixelleds.rainbow_circular_update();
-//    }
-//    neopixelleds.clear_pixels();
-//    // 5.3.color ramp pattern
-//    neopixelleds.color_ramp_begin();
-//    timer_last = millis();
-//    while (millis() - timer_last < PATTERN_PERIOD) {
-//        neopixelleds.color_ramp_update();
-//    }
-//    neopixelleds.clear_pixels();
-//    // 5.4.color wave pattern
-//    neopixelleds.color_wave_begin();
-//    timer_last = millis();
-//    while (millis() - timer_last < PATTERN_PERIOD) {
-//        neopixelleds.color_wave_update();
-//    }
-//    neopixelleds.clear_pixels();
-//    // 5.5.countdown pattern
-//    neopixelleds.countdown_begin();
-//    timer_last = millis();
-//    while (millis() - timer_last < PATTERN_PERIOD) {
-//        neopixelleds.countdown_update();
-//    }
-//    neopixelleds.clear_pixels();
+    // 5.1.rainbow spiral pattern
+    neopixelleds.rainbow_spiral_begin();
+    timer_last = millis();
+    while (millis() - timer_last < PATTERN_PERIOD) {
+        neopixelleds.rainbow_spiral_update();
+    }
+    neopixelleds.clear_pixels();
+    // 5.2.rainbow circular pattern
+    neopixelleds.rainbow_circular_begin();
+    timer_last = millis();
+    while (millis() - timer_last < PATTERN_PERIOD) {
+        neopixelleds.rainbow_circular_update();
+    }
+    neopixelleds.clear_pixels();
+    // 5.3.color ramp pattern
+    neopixelleds.color_ramp_begin();
+    timer_last = millis();
+    while (millis() - timer_last < PATTERN_PERIOD) {
+        neopixelleds.color_ramp_update();
+    }
+    neopixelleds.clear_pixels();
+    // 5.4.color wave pattern
+    neopixelleds.color_wave_begin();
+    timer_last = millis();
+    while (millis() - timer_last < PATTERN_PERIOD) {
+        neopixelleds.color_wave_update();
+    }
+    neopixelleds.clear_pixels();
+    // 5.5.countdown pattern
+    neopixelleds.countdown_begin();
+    timer_last = millis();
+    while (millis() - timer_last < PATTERN_PERIOD) {
+        neopixelleds.countdown_update();
+    }
+    neopixelleds.clear_pixels();
 }
 
 
