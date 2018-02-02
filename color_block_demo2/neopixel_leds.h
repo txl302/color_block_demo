@@ -4,7 +4,7 @@
 #include "Arduino.h"
 #include "Adafruit_NeoPixel.h"
 
-#define PIN 4  // pin connection for the new block
+#define PIN 2  // pin connection for the new block
 #define NUMPIXELS 150
 
 // struct for indexing specified pixel
