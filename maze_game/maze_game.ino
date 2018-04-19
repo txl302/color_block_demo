@@ -14,13 +14,16 @@
 NeopixelLeds neopixelleds;
 MPU6050 mpu6050;
 
-float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // vector to hold quaternion
 int16_t accelCount[3];  // Stores the 16-bit signed accelerometer sensor output
 float ax, ay, az;       // Stores the real accel value in g's
 int16_t gyroCount[3];   // Stores the 16-bit signed gyro sensor output
 float gx, gy, gz;       // Stores the real gyro value in degrees per seconds
 float aRes = 2.0/32768.0;
 float gRes = 250.0/32768.0;
+float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // vector to hold quaternion
+float roll_rad, pitch_rad, yaw_rad;
+float roll_deg, pitch_deg, yaw_deg;
+float ax_c, ay_c, az_c;  // gravity-compensated acceleration on body frame
 // for quaternion update
 float GyroMeasError = PI * (40.0f / 180.0f);     // gyroscope measurement error in rads/s (start at 60 deg/s), then reduce after ~10 s to 3
 float beta = sqrt(3.0f / 4.0f) * GyroMeasError;  // compute beta
@@ -28,8 +31,13 @@ float GyroMeasDrift = PI * (2.0f / 180.0f);      // gyroscope measurement drift 
 float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;  // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
 float deltat = 0.0f;
 
-unsigned long timer_last, timer_now;
-const int PATTERN_PERIOD = 20000;
+// flow control
+unsigned long time_last, time_now;  // microsecond
+unsigned long period = 20000;
+// debug print control
+unsigned long debug_period = 100000;
+uint8_t debug_freq = (uint8_t)((float)debug_period/period);
+uint8_t debug_count = 0;
 
 // declare functions
 void writeByte(uint8_t address, uint8_t subAddress, uint8_t data);
@@ -64,30 +72,63 @@ void setup() {
     analogWrite(VIBR_MOTOR, 100);
     delay(500);
     analogWrite(VIBR_MOTOR, 0);
+
+    // 
+
+    time_last = micros();
 }
 
 void loop() {
-    // read raw accel/gyro measurements from device
-    mpu6050.getMotion6(&accelCount[0], &accelCount[1], &accelCount[2],
-        &gyroCount[0], &gyroCount[1], &gyroCount[2]);
-    ax = (float)accelCount[0] * aRes;  // get actual g value
-    ay = (float)accelCount[1] * aRes;
-    az = (float)accelCount[2] * aRes;
-    gx = (float)gyroCount[0] * gRes;  // get actual gyro value
-    gy = (float)gyroCount[1] * gRes;
-    gz = (float)gyroCount[2] * gRes;
+    time_now = micros();
+    if ((time_now - time_last) > period) {
+        deltat = (time_now - time_last)/1000000.0f;
+        time_last = time_now;
 
-    // display tab-separated accel/gyro x/y/z values
-    Serial.print("a/g:\t");
-    Serial.print(ax); Serial.print("\t");
-    Serial.print(ay); Serial.print("\t");
-    Serial.print(az); Serial.print("\t");
-    Serial.print(gx); Serial.print("\t");
-    Serial.print(gy); Serial.print("\t");
-    Serial.println(gz);
-    // delay before next reading:
-    delay(100);
+        // read raw accel/gyro measurements from device
+        mpu6050.getMotion6(&accelCount[0], &accelCount[1], &accelCount[2],
+            &gyroCount[0], &gyroCount[1], &gyroCount[2]);
+        ax = (float)accelCount[0] * aRes;  // get actual g value
+        ay = (float)accelCount[1] * aRes;
+        az = (float)accelCount[2] * aRes;
+        gx = (float)gyroCount[0] * gRes;  // get actual gyro value
+        gy = (float)gyroCount[1] * gRes;
+        gz = (float)gyroCount[2] * gRes;
 
+        // quaternion update
+        MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.f, gy*PI/180.f, gz*PI/180.f);
+        roll_rad = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+        pitch_rad = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
+        yaw_rad = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
+        roll_deg = roll_rad * 180.0f / PI;
+        pitch_deg = pitch_rad * 180.0f / PI;
+        yaw_deg = yaw_rad * 180.0f / PI; 
+
+        // gravity-compensated acceleration
+        ax_c = ax - 2*(q[1]*q[3] - q[0]*q[2]);
+        ay_c = ay - 2*(q[0]*q[1] + q[2]*q[3]);
+        az_c = az - (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]);
+
+        // debug print
+        debug_count = debug_count + 1;
+        if (debug_count > debug_freq) {
+            debug_count = 0;
+            // // display tab-separated accel/gyro x/y/z values
+            // Serial.print("a/g:\t");
+            // Serial.print(ax); Serial.print("\t");
+            // Serial.print(ay); Serial.print("\t");
+            // Serial.print(az); Serial.print("\t");
+            // Serial.print(gx); Serial.print("\t");
+            // Serial.print(gy); Serial.print("\t");
+            // Serial.println(gz);
+            Serial.print("accel/rpy:\t");
+            Serial.print(ax_c); Serial.print("\t");
+            Serial.print(ay_c); Serial.print("\t");
+            Serial.print(az_c); Serial.print("\t");
+            Serial.print(roll_deg); Serial.print("\t");
+            Serial.print(pitch_deg); Serial.print("\t");
+            Serial.println(yaw_deg);
+        }
+    }
 }
 
 // Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
