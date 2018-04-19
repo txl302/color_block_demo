@@ -1,19 +1,25 @@
 // This is the 3D maze game for the color block 2.0
 
-#include "neopixel_leds.h"
-#include "pitches.h"
+// info about hardware orientation and indexing
+// Cap is face 6, also the top of the block.
+// The top of the circuit is facing face 3, so x of mpu6050 points to face 2, y points to
+// face 6(top), z points to face 3.
+
 #include "I2Cdev.h"
 #include "Wire.h"
 #include "MPU6050.h"
+#include "pitches.h"
+#include "Adafruit_NeoPixel.h"
 
 // hardware connections
 #define SPEAKER 3
 #define VIBR_MOTOR 5
 #define MPU6050_ADDRESS 0x68
+#define PIXEL_PIN 2
+#define PIXEL_NUM 150
 
-NeopixelLeds neopixelleds;
+// MPU6050 variables
 MPU6050 mpu6050;
-
 int16_t accelCount[3];  // Stores the 16-bit signed accelerometer sensor output
 float ax, ay, az;       // Stores the real accel value in g's
 int16_t gyroCount[3];   // Stores the 16-bit signed gyro sensor output
@@ -31,9 +37,27 @@ float GyroMeasDrift = PI * (2.0f / 180.0f);      // gyroscope measurement drift 
 float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;  // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
 float deltat = 0.0f;
 
+// Neopixel variables
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(PIXEL_NUM, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+uint32_t color_bright = pixels.Color(255,255,255);
+uint32_t color_dark = pixels.Color(0,0,0);
+// maze design: '1' lights up for wall, '0' is dark for free space
+uint8_t MAZE[6][5][5] = {
+    {{1,0,1,1,1},{1,0,1,0,1},{1,0,1,0,0},{0,0,1,0,1},{1,1,1,0,0}},
+    {{0,0,0,0,0},{0,1,1,1,0},{0,0,0,1,0},{0,1,0,1,0},{0,1,0,1,0}},
+    {{1,1,1,0,1},{1,0,1,0,1},{0,0,1,0,1},{1,0,0,0,1},{1,1,1,1,1}},
+    {{0,1,0,0,0},{1,1,1,1,1},{0,0,0,0,0},{1,1,0,1,1},{0,1,0,0,0}},
+    {{1,0,0,0,1},{1,0,1,1,1},{0,0,0,1,0},{1,1,1,1,1},{0,1,0,0,0}},
+    {{1,0,0,0,0},{1,1,1,0,1},{1,0,0,0,1},{1,0,1,1,1},{1,0,0,0,0}}};
+// positions on the block, indexed as {face, row, column}
+uint8_t pos_player[3] = {5,2,2};  // also starting pos, at the middle of the top face
+uint32_t color_player = pixels.Color(0,255,0);
+uint8_t pos_des[3] = {4,2,2};  // destination is at the middle of the bottom face
+uint32_t color_des = pixels.Color(255,0,0);
+
 // flow control
 unsigned long time_last, time_now;  // microsecond
-unsigned long period = 20000;
+unsigned long period = 20000;  // period for main loop
 // debug print control
 unsigned long debug_period = 100000;
 uint8_t debug_freq = (uint8_t)((float)debug_period/period);
@@ -48,32 +72,40 @@ void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, 
 
 void setup() {
     Serial.begin(9600);  // print test message
-    
+
     // mpu6050
     Wire.begin();  // join I2C bus
     calibrateGyro();
     mpu6050.initialize();
 
-//    // vibration motor
-//    // fade in from min to max in increments of 5 points:
-//    for (int fadeValue = 0 ; fadeValue <= 255; fadeValue += 5) {
-//        // sets the value (range from 0 to 255):
-//        analogWrite(VIBR_MOTOR, fadeValue);
-//        delay(30);
-//    }
-//    // fade out from max to min in increments of 5 points:
-//    for (int fadeValue = 255 ; fadeValue >= 0; fadeValue -= 5) {
-//        // sets the value (range from 0 to 255):
-//        analogWrite(VIBR_MOTOR, fadeValue);
-//        delay(30);
-//    }
-
-    // vibration motor, indicate setup is finished
+    // vibration motor, indicate block is powered on
     analogWrite(VIBR_MOTOR, 100);
     delay(500);
     analogWrite(VIBR_MOTOR, 0);
 
-    // 
+    // // neopixels, light up the maze
+    // pixels.begin();
+    // int serial_index;
+    // uint8_t pos[3];
+    // for (uint8_t face=0; face<6; face++) {
+    //     for (uint8_t row=0; row<5; row++) {
+    //         for (uint8_t column=0; column<5; column++) {
+    //             pos[0] = face; pos[1] = row; pos[2] = column;
+    //             serial_index = pixel_indexing(pos);
+    //             if (MAZE[face][row][column] == 1) {
+    //                 pixels.setPixelColor(serial_index, color_bright);
+    //             }
+    //             else {
+    //                 pixels.setPixelColor(serial_index, color_dark);
+    //             }
+    //         }
+    //     }
+    // }
+    // serial_index = pixel_indexing(pos_player);
+    // pixels.setPixelColor(serial_index, color_player);
+    // serial_index = pixel_indexing(pos_des);
+    // pixels.setPixelColor(serial_index, color_des);
+    // pixels.show();
 
     time_last = micros();
 }
@@ -128,6 +160,33 @@ void loop() {
             Serial.print(pitch_deg); Serial.print("\t");
             Serial.println(yaw_deg);
         }
+    }
+}
+
+// return the index of current top surface
+
+
+// all the pixels are rearranged by this function
+// input is a index in a 6x5x5 matrix
+// output is the sequence in the neopixel serial connection, from 0 to NUMPIXELS-1
+// return -1 if there is index error, not used
+int pixel_indexing(uint8_t *pos) {
+    // pos[0] is face index(0~5), total 6 faces;
+    // pos[1] is row index(0~4), total 5 rows;
+    // pos[2] is row index(0~4), total 5 columns; 
+    int serial_index;  // for return
+    if (pos[0] == 4 || pos[0] == 5) {
+        // the bottom or top surfaces
+        serial_index = 25*pos[0] + 5*pos[1] + pos[2];
+        return serial_index;
+    }
+    else {
+        // the side surfaces
+        // all the led on the side surfaces need to be rotate ccw 90 degrees
+        uint8_t row_temp = 4 - pos[2];
+        uint8_t column_temp = pos[1];
+        serial_index  = 25*pos[0] + 5*row_temp + column_temp;
+        return serial_index;
     }
 }
 
