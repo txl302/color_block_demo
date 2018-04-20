@@ -71,12 +71,19 @@ uint8_t move_dir[6][6] = {{0,2,0,4,1,3},
     // move direction of the player on that surface
     // first index is the face play is at, second index is the top index
     // '1' for moving up, '2' for right, '3' for down, '4' for left; '0' for invalid
+uint8_t face_next[6][4] = {{5,3,4,1},
+                           {5,0,4,2},
+                           {5,1,4,3},
+                           {5,2,4,0},
+                           {0,3,2,1},
+                           {2,3,0,1}};
+    // next face when going the four direction from one face
 uint8_t face_rot[6][6] = {{0,1,0,1,1,1},
                           {1,0,1,0,3,2},
                           {0,1,0,1,4,4},
                           {1,0,1,0,2,3},
                           {1,2,4,3,0,0},
-                          {1,3,4,2,0,0}},
+                          {1,3,4,2,0,0}};
     // Whether the face needs to rotate to align the direction, when goes from one face
     // to the other. '0' for invalid, '1' for no rotation, '2' for rotate left 90 deg,
     // '3' for rotate right 90 deg, '4' for ratate 180 deg.
@@ -109,29 +116,29 @@ void setup() {
     delay(200);
     analogWrite(VIBR_MOTOR, 0);
 
-    // // neopixels, light up the maze
-    // pixels.begin();
-    // int serial_index;
-    // uint8_t pos[3];
-    // for (uint8_t face=0; face<6; face++) {
-    //     for (uint8_t row=0; row<5; row++) {
-    //         for (uint8_t column=0; column<5; column++) {
-    //             pos[0] = face; pos[1] = row; pos[2] = column;
-    //             serial_index = pixel_indexing(pos);
-    //             if (MAZE[face][row][column] == 1) {
-    //                 pixels.setPixelColor(serial_index, color_bright);
-    //             }
-    //             else {
-    //                 pixels.setPixelColor(serial_index, color_dark);
-    //             }
-    //         }
-    //     }
-    // }
-    // serial_index = pixel_indexing(pos_player);
-    // pixels.setPixelColor(serial_index, color_player);
-    // serial_index = pixel_indexing(pos_des);
-    // pixels.setPixelColor(serial_index, color_des);
-    // pixels.show();
+     // neopixels, light up the maze
+     pixels.begin();
+     int serial_index;
+     uint8_t pos[3];
+     for (uint8_t face=0; face<6; face++) {
+         for (uint8_t row=0; row<5; row++) {
+             for (uint8_t column=0; column<5; column++) {
+                 pos[0] = face; pos[1] = row; pos[2] = column;
+                 serial_index = pixel_indexing(pos);
+                 if (MAZE[face][row][column] == 1) {
+                     pixels.setPixelColor(serial_index, color_bright);
+                 }
+                 else {
+                     pixels.setPixelColor(serial_index, color_dark);
+                 }
+             }
+         }
+     }
+     serial_index = pixel_indexing(pos_player);
+     pixels.setPixelColor(serial_index, color_player);
+     serial_index = pixel_indexing(pos_des);
+     pixels.setPixelColor(serial_index, color_des);
+     pixels.show();
 
     time_last = micros();
 }
@@ -200,34 +207,57 @@ void loop() {
         }
 
         // either the player moves one step down, or hit the wall
-        if shake_detected {
+        if (shake_detected) {
             uint8_t direction = move_dir[pos_player[0]][top_face];
-            if direction {  // should never be 0
+            if (direction) {  // should never be 0
                 // find next pos for the player
+                uint8_t next_pos[3];
+                cal_next_pos(pos_player, direction, next_pos);
+                if (MAZE[next_pos[0]][next_pos[1]][next_pos[2]]) {
+                    // hit a wall, vibrate for a short time
+                    analogWrite(VIBR_MOTOR, 100);
+                    delay(200);
+                    analogWrite(VIBR_MOTOR, 0);
+                }
+                else {
+                    // next pos is free space, update the neopixel display
+                    int serial_index;
+                    serial_index = pixel_indexing(pos_player);
+                    pixels.setPixelColor(serial_index, color_dark);
+                    // update the new position
+                    pos_player[0] = next_pos[0];
+                    pos_player[1] = next_pos[1];
+                    pos_player[2] = next_pos[2];
+                    serial_index = pixel_indexing(pos_player);
+                    pixels.setPixelColor(serial_index, color_player);
+                    // buzz for a short time for noticing
+                    tone(SPEAKER, 33, 200);
+                    noTone(SPEAKER);
+                }
             }
         }
 
-        // debug print
-        debug_count = debug_count + 1;
-        if (debug_count > debug_freq) {
-            debug_count = 0;
-            // Serial.print(ax); Serial.print("\t");
-            // Serial.print(ay); Serial.print("\t");
-            // Serial.print(az); Serial.print("\t");
-            // Serial.print(gx); Serial.print("\t");
-            // Serial.print(gy); Serial.print("\t");
-            // Serial.println(gz);
-            // Serial.print(accel_b[0]); Serial.print("\t");
-            // Serial.print(accel_b[1]); Serial.print("\t");
-            // Serial.print(accel_b[2]); Serial.print("\t");
-            // Serial.print(roll); Serial.print("\t");
-            // Serial.print(pitch); Serial.print("\t");
-            // Serial.println(yaw);
-            Serial.print(top_face); Serial.print("\t");
-            Serial.print(p_vect[0]); Serial.print("\t");
-            Serial.print(p_vect[1]); Serial.print("\t");
-            Serial.println(p_vect[2]);
-        }
+        // // debug print
+        // debug_count = debug_count + 1;
+        // if (debug_count > debug_freq) {
+        //     debug_count = 0;
+        //     // Serial.print(ax); Serial.print("\t");
+        //     // Serial.print(ay); Serial.print("\t");
+        //     // Serial.print(az); Serial.print("\t");
+        //     // Serial.print(gx); Serial.print("\t");
+        //     // Serial.print(gy); Serial.print("\t");
+        //     // Serial.println(gz);
+        //     // Serial.print(accel_b[0]); Serial.print("\t");
+        //     // Serial.print(accel_b[1]); Serial.print("\t");
+        //     // Serial.print(accel_b[2]); Serial.print("\t");
+        //     // Serial.print(roll); Serial.print("\t");
+        //     // Serial.print(pitch); Serial.print("\t");
+        //     // Serial.println(yaw);
+        //     // Serial.print(top_face); Serial.print("\t");
+        //     // Serial.print(p_vect[0]); Serial.print("\t");
+        //     // Serial.print(p_vect[1]); Serial.print("\t");
+        //     // Serial.println(p_vect[2]);
+        // }
     }
 }
 
@@ -259,38 +289,86 @@ int8_t top_face_indexing(float *p_vect) {
 }
 
 // find next pos of the player, given current pos and move direction
-void next_pos(uint8_t *current_pos, uint8_t direction, uint8_t *next_pos) {
+void cal_next_pos(uint8_t *current_pos, uint8_t direction, uint8_t *next_pos) {
     uint8_t face = current_pos[0];
     uint8_t row = current_pos[1];
     uint8_t column = current_pos[2];
+    // copy current pos to next pos
+    next_pos[0] = current_pos[0];
+    next_pos[1] = current_pos[1];
+    next_pos[2] = current_pos[2];
     if ((row == 0) && (direction == 1)) {
         // player position goes across the top
-
+        uint8_t t_face_next = face_next[face][direction-1];  // t for transition
+        uint8_t t_face_rot = face_rot[face][t_face_next];
+        next_pos[0] = t_face_next;
+        next_pos[1] = 4;
+        pos_face_rot(next_pos, t_face_rot);
     }
     else if ((row == 4) && (direction == 3)) {
         // player position goes across the bottom
+        uint8_t t_face_next = face_next[face][direction-1];
+        uint8_t t_face_rot = face_rot[face][t_face_next];
+        next_pos[0] = t_face_next;
+        next_pos[1] = 0;
+        pos_face_rot(next_pos, t_face_rot);
     }
     else if ((column == 0) && (direction == 4)) {
         // player position goes across the left
+        uint8_t t_face_next = face_next[face][direction-1];
+        uint8_t t_face_rot = face_rot[face][t_face_next];
+        next_pos[0] = t_face_next;
+        next_pos[2] = 4;
+        pos_face_rot(next_pos, t_face_rot);
     }
     else if ((column == 4) && (direction == 2)) {
         // player position goes across the right
+        uint8_t t_face_next = face_next[face][direction-1];
+        uint8_t t_face_rot = face_rot[face][t_face_next];
+        next_pos[0] = t_face_next;
+        next_pos[2] = 0;
+        pos_face_rot(next_pos, t_face_rot);
     }
     else {
         // player moves inside the face
-        next_pos[0] = current_pos[0];
-        next_pos[1] = current_pos[1];
-        next_pos[2] = current_pos[2];
         switch (direction) {
             case 1:  // move one step up
                 next_pos[1] = next_pos[1] - 1;
+                break;
             case 2:  // move one step right
                 next_pos[2] = next_pos[2] + 1;
+                break;
             case 3:  // move one step down
                 next_pos[1] = next_pos[1] + 1;
+                break;
             case 4:  // move one step left
                 next_pos[2] = next_pos[2] - 1;
+                break;
         }
+    }
+}
+
+// pos on the face after the face rotation
+void pos_face_rot(uint8_t *pos, uint8_t face_rot) {
+    uint8_t old_row = pos[1];
+    uint8_t old_column = pos[2];
+    switch (face_rot) {
+        case 1:  // no rotation
+            break;
+        case 2:  // rotate left
+            // the map(coordiates) rotate left, the position rotate right
+            pos[1] = old_column;
+            pos[2] = 4 - old_row;
+            break;
+        case 3:  // rotate right
+            // the map(coordiates) rotate right, the position rotate left
+            pos[1] = 4 - old_column;
+            pos[2] = old_row;
+            break;
+        case 4:  // rotate 180
+            pos[1] = 4 - old_row;
+            pos[2] = 4 - old_column;
+            break;
     }
 }
 
