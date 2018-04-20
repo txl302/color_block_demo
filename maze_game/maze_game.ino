@@ -1,4 +1,5 @@
 // This is the 3D maze game for the color block 2.0
+// Author: Yang Liu, 04/20/2018.
 
 // info about hardware orientation and indexing
 // Cap is face 6, also the top of the block.
@@ -9,7 +10,6 @@
 #include "I2Cdev.h"
 #include "Wire.h"
 #include "MPU6050.h"
-#include "pitches.h"
 #include "Adafruit_NeoPixel.h"
 
 // hardware connections
