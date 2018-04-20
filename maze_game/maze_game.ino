@@ -87,21 +87,28 @@ uint8_t face_rot[6][6] = {{0,1,0,1,1,1},
     // Whether the face needs to rotate to align the direction, when goes from one face
     // to the other. '0' for invalid, '1' for no rotation, '2' for rotate left 90 deg,
     // '3' for rotate right 90 deg, '4' for ratate 180 deg.
+float shake_thres = 0.5;  // empirical threshold for shake detection
 
 // flow control
 unsigned long time_last, time_now;  // microsecond
 unsigned long period = 20000;  // period for main loop
+uint8_t vib_on = 0;  // vibration motor state
+uint8_t vib_count_total = 10;  // duration is 10 times the loop period
+uint8_t vib_count = 0;
+uint8_t buz_on = 0;  // speaker state
+uint8_t buz_count_total = 10;
+uint8_t buz_count = 0;
+uint8_t det_off = 0;  // whether shake detection is disabled
+uint8_t det_count_total = 30;
+uint8_t det_count = 0;
+uint8_t game_win = 0;  // whether game is won
+uint8_t win_count_total = 250;
+uint8_t win_count = 0;
+int rainbow_index = 0;
 // debug print control
 unsigned long debug_period = 100000;
 uint8_t debug_freq = (uint8_t)((float)debug_period/period);
 uint8_t debug_count = 0;
-
-// declare functions
-void writeByte(uint8_t address, uint8_t subAddress, uint8_t data);
-uint8_t readByte(uint8_t address, uint8_t subAddress);
-void readBytes(uint8_t address, uint8_t subAddress, uint8_t count, uint8_t * dest);
-void calibrateGyro();
-void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz);
 
 void setup() {
     Serial.begin(9600);  // print test message
@@ -112,33 +119,33 @@ void setup() {
     mpu6050.initialize();
 
     // vibration motor, indicate block is powered on
-    analogWrite(VIBR_MOTOR, 50);
+    analogWrite(VIBR_MOTOR, 100);
     delay(200);
     analogWrite(VIBR_MOTOR, 0);
 
-     // neopixels, light up the maze
-     pixels.begin();
-     int serial_index;
-     uint8_t pos[3];
-     for (uint8_t face=0; face<6; face++) {
-         for (uint8_t row=0; row<5; row++) {
-             for (uint8_t column=0; column<5; column++) {
-                 pos[0] = face; pos[1] = row; pos[2] = column;
-                 serial_index = pixel_indexing(pos);
-                 if (MAZE[face][row][column] == 1) {
-                     pixels.setPixelColor(serial_index, color_bright);
-                 }
-                 else {
-                     pixels.setPixelColor(serial_index, color_dark);
-                 }
-             }
-         }
-     }
-     serial_index = pixel_indexing(pos_player);
-     pixels.setPixelColor(serial_index, color_player);
-     serial_index = pixel_indexing(pos_des);
-     pixels.setPixelColor(serial_index, color_des);
-     pixels.show();
+    // neopixels, light up the maze
+    pixels.begin();
+    int serial_index;
+    uint8_t pos[3];
+    for (uint8_t face=0; face<6; face++) {
+        for (uint8_t row=0; row<5; row++) {
+            for (uint8_t column=0; column<5; column++) {
+                pos[0] = face; pos[1] = row; pos[2] = column;
+                serial_index = pixel_indexing(pos);
+                if (MAZE[face][row][column] == 1) {
+                    pixels.setPixelColor(serial_index, color_bright);
+                }
+                else {
+                    pixels.setPixelColor(serial_index, color_dark);
+                }
+            }
+        }
+    }
+    serial_index = pixel_indexing(pos_player);
+    pixels.setPixelColor(serial_index, color_player);
+    serial_index = pixel_indexing(pos_des);
+    pixels.setPixelColor(serial_index, color_des);
+    pixels.show();
 
     time_last = micros();
 }
@@ -149,115 +156,222 @@ void loop() {
         deltat = (time_now - time_last)/1000000.0f;
         time_last = time_now;
 
-        // read raw accel/gyro measurements from device
-        mpu6050.getMotion6(&accelCount[0], &accelCount[1], &accelCount[2],
-            &gyroCount[0], &gyroCount[1], &gyroCount[2]);
-        ax = (float)accelCount[0] * aRes;  // get actual g value
-        ay = (float)accelCount[1] * aRes;
-        az = (float)accelCount[2] * aRes;
-        gx = (float)gyroCount[0] * gRes;  // get actual gyro value
-        gy = (float)gyroCount[1] * gRes;
-        gz = (float)gyroCount[2] * gRes;
+        // check if game is won and show the rainbow
+        if (!game_win) {
 
-        // quaternion update
-        MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.f, gy*PI/180.f, gz*PI/180.f);
-        // roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
-        // pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
-        // yaw = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
-        // roll *= 180.0f / PI;
-        // pitch *= 180.0f / PI;
-        // yaw *= 180.0f / PI; 
-
-        // projection of pointing-up unit vector in inertial frame to body frame
-        p_vect[0] = 2*(q[1]*q[3] - q[0]*q[2]);
-        p_vect[1] = 2*(q[0]*q[1] + q[2]*q[3]);
-        p_vect[2] = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
-
-        // the projection vector is also used to compensate gravity in body frame accel
-        accel_b[0] = ax - p_vect[0];
-        accel_b[1] = ay - p_vect[1];
-        accel_b[2] = az - p_vect[2];
-
-        // shake detection
-        uint8_t shake_detected = 0;
-        int8_t top_face = top_face_indexing(p_vect);
-        uint8_t current_valid = 0;  // whether current shake acceleration is valid
-        if ((top_face != -1) && (top_face != pos_player[0])
-            && (top_face != bottom_face[pos_player[0]])) current_valid = 1;
-        if (last_valid && !current_valid) last_valid = 0;
-        else if (!last_valid && current_valid) {
-            // record current shake acceleration as last values
-            last_valid = 1;
-            last_top_face = top_face;
-            last_shake_accel = accel_b[face_axis[pos_player[0]]];
-        }
-        else if (last_valid && current_valid) {
-            // usually top_face and last_top_face are equal if here, but just in case
-            if (top_face == last_top_face) {
-                // compare shake acceleration in order to detect shake
-                float shake_accel = accel_b[face_axis[pos_player[0]]];
-                if (abs(shake_accel - last_shake_accel) > 1.5) {
-                    shake_detected = 1;  // a shake is detected
+            // check shake detection state
+            if (det_off) {
+                det_count = det_count + 1;
+                if (det_count == det_count_total) {
+                    det_off = 0;
                 }
             }
-            // copy current values as last
-            last_valid = 1;
-            last_top_face = top_face;
-            last_shake_accel = accel_b[face_axis[pos_player[0]]];
-        }
 
-        // either the player moves one step down, or hit the wall
-        if (shake_detected) {
-            uint8_t direction = move_dir[pos_player[0]][top_face];
-            if (direction) {  // should never be 0
-                // find next pos for the player
-                uint8_t next_pos[3];
-                cal_next_pos(pos_player, direction, next_pos);
-                if (MAZE[next_pos[0]][next_pos[1]][next_pos[2]]) {
-                    // hit a wall, vibrate for a short time
-                    analogWrite(VIBR_MOTOR, 100);
-                    delay(200);
+            // check state of vibration motor
+            if (vib_on) {
+                vib_count = vib_count + 1;
+                if (vib_count == vib_count_total) {
                     analogWrite(VIBR_MOTOR, 0);
-                }
-                else {
-                    // next pos is free space, update the neopixel display
-                    int serial_index;
-                    serial_index = pixel_indexing(pos_player);
-                    pixels.setPixelColor(serial_index, color_dark);
-                    // update the new position
-                    pos_player[0] = next_pos[0];
-                    pos_player[1] = next_pos[1];
-                    pos_player[2] = next_pos[2];
-                    serial_index = pixel_indexing(pos_player);
-                    pixels.setPixelColor(serial_index, color_player);
-                    // buzz for a short time for noticing
-                    tone(SPEAKER, 33, 200);
-                    noTone(SPEAKER);
+                    vib_on = 0;
                 }
             }
-        }
 
-        // // debug print
-        // debug_count = debug_count + 1;
-        // if (debug_count > debug_freq) {
-        //     debug_count = 0;
-        //     // Serial.print(ax); Serial.print("\t");
-        //     // Serial.print(ay); Serial.print("\t");
-        //     // Serial.print(az); Serial.print("\t");
-        //     // Serial.print(gx); Serial.print("\t");
-        //     // Serial.print(gy); Serial.print("\t");
-        //     // Serial.println(gz);
-        //     // Serial.print(accel_b[0]); Serial.print("\t");
-        //     // Serial.print(accel_b[1]); Serial.print("\t");
-        //     // Serial.print(accel_b[2]); Serial.print("\t");
-        //     // Serial.print(roll); Serial.print("\t");
-        //     // Serial.print(pitch); Serial.print("\t");
-        //     // Serial.println(yaw);
-        //     // Serial.print(top_face); Serial.print("\t");
-        //     // Serial.print(p_vect[0]); Serial.print("\t");
-        //     // Serial.print(p_vect[1]); Serial.print("\t");
-        //     // Serial.println(p_vect[2]);
-        // }
+            // check state of speaker
+            if (buz_on) {
+                buz_count = buz_count + 1;
+                if (buz_count == buz_count_total) {
+                    noTone(SPEAKER);
+                    buz_on = 0;
+                }
+            }
+
+            // read raw accel/gyro measurements from device
+            mpu6050.getMotion6(&accelCount[0], &accelCount[1], &accelCount[2],
+                &gyroCount[0], &gyroCount[1], &gyroCount[2]);
+            ax = (float)accelCount[0] * aRes;  // get actual g value
+            ay = (float)accelCount[1] * aRes;
+            az = (float)accelCount[2] * aRes;
+            gx = (float)gyroCount[0] * gRes;  // get actual gyro value
+            gy = (float)gyroCount[1] * gRes;
+            gz = (float)gyroCount[2] * gRes;
+
+            // quaternion update
+            MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.f, gy*PI/180.f, gz*PI/180.f);
+            // roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+            // pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
+            // yaw = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
+            // roll *= 180.0f / PI;
+            // pitch *= 180.0f / PI;
+            // yaw *= 180.0f / PI; 
+
+            // projection of pointing-up unit vector in inertial frame to body frame
+            p_vect[0] = 2*(q[1]*q[3] - q[0]*q[2]);
+            p_vect[1] = 2*(q[0]*q[1] + q[2]*q[3]);
+            p_vect[2] = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
+
+            // the projection vector is also used to compensate gravity in body frame accel
+            accel_b[0] = ax - p_vect[0];
+            accel_b[1] = ay - p_vect[1];
+            accel_b[2] = az - p_vect[2];
+
+            // shake detection
+            uint8_t shake_detected = 0;
+            int8_t top_face = top_face_indexing(p_vect);
+            if (!det_off) {
+                uint8_t current_valid = 0;  // whether current shake acceleration is valid
+                if ((top_face != -1) && (top_face != pos_player[0])
+                    && (top_face != bottom_face[pos_player[0]])) current_valid = 1;
+                if (last_valid && !current_valid) last_valid = 0;
+                else if (!last_valid && current_valid) {
+                    // record current shake acceleration as last values
+                    last_valid = 1;
+                    last_top_face = top_face;
+                    last_shake_accel = accel_b[face_axis[pos_player[0]]];
+                }
+                else if (last_valid && current_valid) {
+                    // usually top_face and last_top_face are equal if here, but just in case
+                    if (top_face != last_top_face) {
+                        // copy current values as last
+                        last_valid = 1;
+                        last_top_face = top_face;
+                        last_shake_accel = accel_b[face_axis[pos_player[0]]];
+                    }
+                    else {
+                        // compare shake acceleration in order to detect shake
+                        float shake_accel = accel_b[face_axis[pos_player[0]]];
+                        if (abs(shake_accel - last_shake_accel) > shake_thres) {
+                            shake_detected = 1;  // a shake is detected
+                            last_valid = 0;
+                            det_off = 1;
+                            det_count = 0;
+                        }
+                    }
+                }
+            }
+
+            // either the player moves one step down, or hit the wall
+            if (shake_detected) {
+                uint8_t move_dir_curr = move_dir[pos_player[0]][top_face];
+                if (move_dir_curr) {  // should never be 0
+                    // find next pos for the player
+                    uint8_t next_pos[3];
+                    cal_next_pos(pos_player, move_dir_curr, next_pos);
+                    Serial.print(move_dir_curr); Serial.print("\t");
+                    Serial.print(next_pos[0]); Serial.print("\t");
+                    Serial.print(next_pos[1]); Serial.print("\t");
+                    Serial.println(next_pos[2]);
+                    if (MAZE[next_pos[0]][next_pos[1]][next_pos[2]]) {
+                        // hit a wall, vibrate for a short time
+                        analogWrite(VIBR_MOTOR, 100);
+                        vib_on = 1;
+                        vib_count = 0;
+                    }
+                    else {
+                        // next pos is free space, update the neopixel display
+                        int serial_index;
+                        serial_index = pixel_indexing(pos_player);
+                        pixels.setPixelColor(serial_index, color_dark);
+                        // update the new position
+                        pos_player[0] = next_pos[0];
+                        pos_player[1] = next_pos[1];
+                        pos_player[2] = next_pos[2];
+                        serial_index = pixel_indexing(pos_player);
+                        pixels.setPixelColor(serial_index, color_player);
+                        pixels.show();
+                        // check if game is won
+                        if ((pos_player[0] == pos_des[0]) && (pos_player[1] == pos_des[1])
+                            && (pos_player[2] == pos_des[2])) {
+                            game_win = 1;
+                            win_count = 0;
+                        }
+                        else {
+                            // buzz for a short time for noticing
+                            tone(SPEAKER, 262);
+                            buz_on = 1;
+                            buz_count = 0;
+                            }
+
+                    }
+                }
+            }
+
+    //        // debug print
+    //        debug_count = debug_count + 1;
+    //        if (debug_count > debug_freq) {
+    //            debug_count = 0;
+    //            // Serial.print(ax); Serial.print("\t");
+    //            // Serial.print(ay); Serial.print("\t");
+    //            // Serial.print(az); Serial.print("\t");
+    //            // Serial.print(gx); Serial.print("\t");
+    //            // Serial.print(gy); Serial.print("\t");
+    //            // Serial.println(gz);
+    //            // Serial.print(accel_b[0]); Serial.print("\t");
+    //            // Serial.print(accel_b[1]); Serial.print("\t");
+    //            // Serial.print(accel_b[2]); Serial.print("\t");
+    //            // Serial.print(roll); Serial.print("\t");
+    //            // Serial.print(pitch); Serial.print("\t");
+    //            // Serial.println(yaw);
+    //            // Serial.print(top_face); Serial.print("\t");
+    //            // Serial.print(p_vect[0]); Serial.print("\t");
+    //            // Serial.print(p_vect[1]); Serial.print("\t");
+    //            // Serial.println(p_vect[2]);
+    //        }
+        }
+        else {
+            win_count = win_count + 1;
+            if (win_count == win_count_total) {
+                // start a new game
+                game_win = 0;
+                int serial_index;
+                uint8_t pos[3];
+                for (uint8_t face=0; face<6; face++) {
+                    for (uint8_t row=0; row<5; row++) {
+                        for (uint8_t column=0; column<5; column++) {
+                            pos[0] = face; pos[1] = row; pos[2] = column;
+                            serial_index = pixel_indexing(pos);
+                            if (MAZE[face][row][column] == 1) {
+                                pixels.setPixelColor(serial_index, color_bright);
+                            }
+                            else {
+                                pixels.setPixelColor(serial_index, color_dark);
+                            }
+                        }
+                    }
+                }
+                pos_player[0] = 5; pos_player[1] = 2; pos_player[2] = 2;
+                serial_index = pixel_indexing(pos_player);
+                pixels.setPixelColor(serial_index, color_player);
+                serial_index = pixel_indexing(pos_des);
+                pixels.setPixelColor(serial_index, color_des);
+                pixels.show();
+            }
+            else {
+                // show the rainbow
+                int light_index = 0;
+                int serial_index;
+                uint8_t pos[3];
+                for (uint8_t face=0; face<6; face++) {
+                    for (uint8_t row=0; row<5; row++) {
+                        for (uint8_t column=0; column<5; column++) {
+                            pos[0] = face; pos[1] = row; pos[2] = column;
+                            serial_index = pixel_indexing(pos);
+                            if (MAZE[face][row][column] == 1) {
+                                pixels.setPixelColor(serial_index,
+                                    pixel_wheel(((light_index * 256 /25) + rainbow_index) & 255));
+                                light_index = (light_index + 1)%25;
+                            }
+                            else {
+                                pixels.setPixelColor(serial_index, color_dark);
+                            }
+                        }
+                    }
+                }
+                serial_index = pixel_indexing(pos_des);
+                pixels.setPixelColor(serial_index, color_player);
+                pixels.show();
+                rainbow_index = rainbow_index + 5;
+            }
+        }
     }
 }
 
@@ -393,6 +507,26 @@ int pixel_indexing(uint8_t *pos) {
         uint8_t column_temp = pos[1];
         serial_index  = 25*pos[0] + 5*row_temp + column_temp;
         return serial_index;
+    }
+}
+
+// Input a value 0 to 255 to get a color value.
+// The colours are a transition r - g - b - back to r.
+uint32_t pixel_wheel(byte WheelPos) {
+    WheelPos = 255 - WheelPos;
+    if(WheelPos < 85)
+    {
+        return pixels.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+    }
+    else if(WheelPos < 170)
+    {
+        WheelPos -= 85;
+        return pixels.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+    }
+    else
+    {
+        WheelPos -= 170;
+        return pixels.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
     }
 }
 
