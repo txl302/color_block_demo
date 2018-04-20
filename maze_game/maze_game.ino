@@ -71,6 +71,15 @@ uint8_t move_dir[6][6] = {{0,2,0,4,1,3},
     // move direction of the player on that surface
     // first index is the face play is at, second index is the top index
     // '1' for moving up, '2' for right, '3' for down, '4' for left; '0' for invalid
+uint8_t face_rot[6][6] = {{0,1,0,1,1,1},
+                          {1,0,1,0,3,2},
+                          {0,1,0,1,4,4},
+                          {1,0,1,0,2,3},
+                          {1,2,4,3,0,0},
+                          {1,3,4,2,0,0}},
+    // Whether the face needs to rotate to align the direction, when goes from one face
+    // to the other. '0' for invalid, '1' for no rotation, '2' for rotate left 90 deg,
+    // '3' for rotate right 90 deg, '4' for ratate 180 deg.
 
 // flow control
 unsigned long time_last, time_now;  // microsecond
@@ -254,6 +263,35 @@ void next_pos(uint8_t *current_pos, uint8_t direction, uint8_t *next_pos) {
     uint8_t face = current_pos[0];
     uint8_t row = current_pos[1];
     uint8_t column = current_pos[2];
+    if ((row == 0) && (direction == 1)) {
+        // player position goes across the top
+
+    }
+    else if ((row == 4) && (direction == 3)) {
+        // player position goes across the bottom
+    }
+    else if ((column == 0) && (direction == 4)) {
+        // player position goes across the left
+    }
+    else if ((column == 4) && (direction == 2)) {
+        // player position goes across the right
+    }
+    else {
+        // player moves inside the face
+        next_pos[0] = current_pos[0];
+        next_pos[1] = current_pos[1];
+        next_pos[2] = current_pos[2];
+        switch (direction) {
+            case 1:  // move one step up
+                next_pos[1] = next_pos[1] - 1;
+            case 2:  // move one step right
+                next_pos[2] = next_pos[2] + 1;
+            case 3:  // move one step down
+                next_pos[1] = next_pos[1] + 1;
+            case 4:  // move one step left
+                next_pos[2] = next_pos[2] - 1;
+        }
+    }
 }
 
 // all the pixels are rearranged by this function
