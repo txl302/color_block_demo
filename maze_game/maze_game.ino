@@ -2,8 +2,9 @@
 
 // info about hardware orientation and indexing
 // Cap is face 6, also the top of the block.
-// The top of the circuit is facing face 3, so x of mpu6050 points to face 2, y points to
-// face 6(top), z points to face 3.
+// The top surface of the circuit is facing face 3, so x of mpu6050 points to face 2, y
+// points to face 6(top), z points to face 3.
+// In the program, the face index is in range of [0,5].
 
 #include "I2Cdev.h"
 #include "Wire.h"
@@ -27,15 +28,15 @@ float gx, gy, gz;       // Stores the real gyro value in degrees per seconds
 float aRes = 2.0/32768.0;
 float gRes = 250.0/32768.0;
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};  // vector to hold quaternion
-float roll_rad, pitch_rad, yaw_rad;
-float roll_deg, pitch_deg, yaw_deg;
-float ax_c, ay_c, az_c;  // gravity-compensated acceleration on body frame
+float roll, pitch, yaw;  // in degrees
+float accel_b[3];  // acceleration in body frame, gravity-compensated
 // for quaternion update
 float GyroMeasError = PI * (40.0f / 180.0f);     // gyroscope measurement error in rads/s (start at 60 deg/s), then reduce after ~10 s to 3
 float beta = sqrt(3.0f / 4.0f) * GyroMeasError;  // compute beta
 float GyroMeasDrift = PI * (2.0f / 180.0f);      // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
 float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;  // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
 float deltat = 0.0f;
+float p_vect[3];
 
 // Neopixel variables
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(PIXEL_NUM, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
@@ -54,6 +55,22 @@ uint8_t pos_player[3] = {5,2,2};  // also starting pos, at the middle of the top
 uint32_t color_player = pixels.Color(0,255,0);
 uint8_t pos_des[3] = {4,2,2};  // destination is at the middle of the bottom face
 uint32_t color_des = pixels.Color(255,0,0);
+
+// block variables
+uint8_t bottom_face[6] = {2,3,0,1,5,4};  // index is top face
+uint8_t face_axis[6] = {2,0,2,0,1,1};  // axis that goes through the face
+uint8_t last_valid = 0;  // whether last recorded shake acceleration value is valid
+uint8_t last_top_face = 0;  // last top face index
+float last_shake_accel;  // last shake acceleration value
+uint8_t move_dir[6][6] = {{0,2,0,4,1,3},
+                          {4,0,2,0,1,3},
+                          {0,4,0,2,1,3},
+                          {2,0,4,0,1,3},
+                          {3,2,1,4,0,0},
+                          {1,2,3,4,0,0}};
+    // move direction of the player on that surface
+    // first index is the face play is at, second index is the top index
+    // '1' for moving up, '2' for right, '3' for down, '4' for left; '0' for invalid
 
 // flow control
 unsigned long time_last, time_now;  // microsecond
@@ -79,8 +96,8 @@ void setup() {
     mpu6050.initialize();
 
     // vibration motor, indicate block is powered on
-    analogWrite(VIBR_MOTOR, 100);
-    delay(500);
+    analogWrite(VIBR_MOTOR, 50);
+    delay(200);
     analogWrite(VIBR_MOTOR, 0);
 
     // // neopixels, light up the maze
@@ -128,43 +145,116 @@ void loop() {
 
         // quaternion update
         MadgwickQuaternionUpdate(ax, ay, az, gx*PI/180.f, gy*PI/180.f, gz*PI/180.f);
-        roll_rad = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
-        pitch_rad = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
-        yaw_rad = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
-        roll_deg = roll_rad * 180.0f / PI;
-        pitch_deg = pitch_rad * 180.0f / PI;
-        yaw_deg = yaw_rad * 180.0f / PI; 
+        // roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+        // pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
+        // yaw = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
+        // roll *= 180.0f / PI;
+        // pitch *= 180.0f / PI;
+        // yaw *= 180.0f / PI; 
 
-        // gravity-compensated acceleration
-        ax_c = ax - 2*(q[1]*q[3] - q[0]*q[2]);
-        ay_c = ay - 2*(q[0]*q[1] + q[2]*q[3]);
-        az_c = az - (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]);
+        // projection of pointing-up unit vector in inertial frame to body frame
+        p_vect[0] = 2*(q[1]*q[3] - q[0]*q[2]);
+        p_vect[1] = 2*(q[0]*q[1] + q[2]*q[3]);
+        p_vect[2] = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
+
+        // the projection vector is also used to compensate gravity in body frame accel
+        accel_b[0] = ax - p_vect[0];
+        accel_b[1] = ay - p_vect[1];
+        accel_b[2] = az - p_vect[2];
+
+        // shake detection
+        uint8_t shake_detected = 0;
+        int8_t top_face = top_face_indexing(p_vect);
+        uint8_t current_valid = 0;  // whether current shake acceleration is valid
+        if ((top_face != -1) && (top_face != pos_player[0])
+            && (top_face != bottom_face[pos_player[0]])) current_valid = 1;
+        if (last_valid && !current_valid) last_valid = 0;
+        else if (!last_valid && current_valid) {
+            // record current shake acceleration as last values
+            last_valid = 1;
+            last_top_face = top_face;
+            last_shake_accel = accel_b[face_axis[pos_player[0]]];
+        }
+        else if (last_valid && current_valid) {
+            // usually top_face and last_top_face are equal if here, but just in case
+            if (top_face == last_top_face) {
+                // compare shake acceleration in order to detect shake
+                float shake_accel = accel_b[face_axis[pos_player[0]]];
+                if (abs(shake_accel - last_shake_accel) > 1.5) {
+                    shake_detected = 1;  // a shake is detected
+                }
+            }
+            // copy current values as last
+            last_valid = 1;
+            last_top_face = top_face;
+            last_shake_accel = accel_b[face_axis[pos_player[0]]];
+        }
+
+        // either the player moves one step down, or hit the wall
+        if shake_detected {
+            uint8_t direction = move_dir[pos_player[0]][top_face];
+            if direction {  // should never be 0
+                // find next pos for the player
+            }
+        }
 
         // debug print
         debug_count = debug_count + 1;
         if (debug_count > debug_freq) {
             debug_count = 0;
-            // // display tab-separated accel/gyro x/y/z values
-            // Serial.print("a/g:\t");
             // Serial.print(ax); Serial.print("\t");
             // Serial.print(ay); Serial.print("\t");
             // Serial.print(az); Serial.print("\t");
             // Serial.print(gx); Serial.print("\t");
             // Serial.print(gy); Serial.print("\t");
             // Serial.println(gz);
-            Serial.print("accel/rpy:\t");
-            Serial.print(ax_c); Serial.print("\t");
-            Serial.print(ay_c); Serial.print("\t");
-            Serial.print(az_c); Serial.print("\t");
-            Serial.print(roll_deg); Serial.print("\t");
-            Serial.print(pitch_deg); Serial.print("\t");
-            Serial.println(yaw_deg);
+            // Serial.print(accel_b[0]); Serial.print("\t");
+            // Serial.print(accel_b[1]); Serial.print("\t");
+            // Serial.print(accel_b[2]); Serial.print("\t");
+            // Serial.print(roll); Serial.print("\t");
+            // Serial.print(pitch); Serial.print("\t");
+            // Serial.println(yaw);
+            Serial.print(top_face); Serial.print("\t");
+            Serial.print(p_vect[0]); Serial.print("\t");
+            Serial.print(p_vect[1]); Serial.print("\t");
+            Serial.println(p_vect[2]);
         }
     }
 }
 
-// return the index of current top surface
+// return the index of current top surface(0~5), return -1 if unambiguous
+int8_t top_face_indexing(float *p_vect) {
+    uint8_t max_index;  // index of p_vect that has largest absolute value
+    if (abs(p_vect[0]) > abs(p_vect[1])) {
+        if (abs(p_vect[0]) > abs(p_vect[2])) max_index = 0;
+        else max_index = 2;
+    }
+    else {
+        if (abs(p_vect[1]) > abs(p_vect[2])) max_index = 1;
+        else max_index = 2;
+    }
+    if (abs(p_vect[max_index]) > 0.8) {  // empirical threshold 
+        switch (max_index) {
+            case 0:
+                if (p_vect[max_index] > 0) return 1;
+                else return 3;
+            case 1:
+                if (p_vect[max_index] > 0) return 5;
+                else return 4;
+            case 2:
+                if (p_vect[max_index] > 0) return 2;
+                else return 0;
+        }
+    }
+    else return -1;
+}
 
+// find next pos of the player, given current pos and move direction
+void next_pos(uint8_t *current_pos, uint8_t direction, uint8_t *next_pos) {
+    uint8_t face = current_pos[0];
+    uint8_t row = current_pos[1];
+    uint8_t column = current_pos[2];
+}
 
 // all the pixels are rearranged by this function
 // input is a index in a 6x5x5 matrix
